@@ -1,0 +1,81 @@
+# BACKEND CODEBASE EXPLANATION - EARLY DISEASE DETECTION
+
+This document provides a detailed walkthrough of the backend architecture, file structure, and implementation logic for the Hackathon project.
+
+---
+
+## 1. Project Overview
+The backend is built using **Python** and **Flask**. It serves as an AI inference engine that takes medical images (X-rays, CT scans, DICOM files), processes them using deep learning models, and returns diagnostic results to the frontend.
+
+---
+
+## 2. Core File Architecture
+
+### A. `backend/app.py` (The API Entry Point)
+This is the main file that runs the Flask server. It handles:
+- **Routing**: Defines endpoints like `/api/analyze`, `/predict/<model_name>`, and `/health`.
+- **Automatic Model Selection**: In the `/api/analyze` endpoint, it uses `infer_scan_type_from_image` to automatically decide which model (CheXNet, MURA, or TB-Net) should be used based on the image's visual features and metadata.
+- **Lazy Loading**: Models are only loaded into memory when first requested to save resources.
+- **Image Preprocessing**: Handles file uploads, ensures they are secure, and converts formats if necessary.
+- **CORS Support**: Configured to allow the React (Vite) frontend to communicate with the Python backend.
+
+### B. `backend/train_models.py` (Training Orchestrator)
+This script acts as a wrapper to train any of the models in the system.
+- It provides a command-line interface (`--model all|chexnet|mura...`) to trigger training.
+- It manages directory switching (CD into dataset folders) and runs the specific `train.py` or `main.py` scripts for each architecture.
+- It captures training success/failure and provides a summary.
+
+### C. `backend/data_pipeline/`
+- **`download_datasets.py`**: A utility script to automate the retrieval of medical datasets (like ChestX-ray14 or MURA) from remote sources or Kaggle.
+
+---
+
+## 3. Deep Learning Models (`backend/models/`)
+
+Each file here implements a "Predictor" class for a specific medical condition.
+
+### 1. `chexnet_inference.py` (Chest X-Ray Analysis)
+- **Architecture**: DenseNet-121.
+- **Logic**: Trained on the ChestX-ray14 dataset to detect 14 different diseases (Atelectasis, Pneumonia, etc.).
+- **Workflow**: 
+    - Resizes image to 256x256, crops to 224x224.
+    - Normalizes using ImageNet mean/std.
+    - Passes through the model to get 14 sigmoid probabilities.
+    - Returns descriptive results for any disease with a probability > 0.5.
+
+### 2. `tuberculosis_inference.py` (TB Specific Detection)
+- **Architecture**: TB-Net (TensorFlow 1.x / 2.x compatibility).
+- **Logic**: Specializes in detecting Tuberculosis patterns.
+- **Fallback Mechanism**: Includes a "Heuristic Fallback" using OpenCV symmetry and intensity analysis if the DL model weights are missing or TensorFlow is unavailable.
+
+### 3. `mura_inference.py` (Bone & Musculoskeletal)
+- **Architecture**: DenseNet-169.
+- **Logic**: Implements the MURA (Musculoskeletal Radiographs) algorithm.
+- **Focus**: Detects abnormalities in wrists, elbows, shoulders, etc. It outputs whether a bone scan is "Normal" or "Abnormal".
+
+### 4. `rsna_inference.py` (Brain CT Analysis)
+- **Architecture**: ResNet-50.
+- **Logic**: Designed for detecting intracranial hemorrhages from CT scans.
+- **DICOM Handling**: Capable of processing `.dcm` files using the `pydicom` library to extract modality information.
+
+### 5. `unet_inference.py` (Medical Image Segmentation)
+- **Architecture**: U-Net.
+- **Logic**: Instead of just classification, it performs "Segmentation" (pixel-wise detection).
+- **Output**: Calculates the percentage of the image occupied by abnormal regions. If the region is > 5% of the total area, it flags a warning.
+
+---
+
+## 4. Resource Management
+
+- **`backend/datasets/`**: This folder contains the actual model weights (`.pth`, `.tar`, `.meta`, `.index`) and specific training scripts. The backend expects models to be placed here (e.g., `datasets/CheXNet/model.pth.tar`).
+- **`backend/uploads/`**: Temporary storage for images sent by the user for analysis. Files are deleted immediately after the AI prediction is returned to ensure privacy and save disk space.
+
+---
+
+## 5. Technical Requirements (`requirements.txt`)
+The backend relies on:
+- `torch` & `torchvision`: For PyTorch models (CheXNet, MURA, UNet).
+- `tensorflow`: For the TB-Net model.
+- `flask` & `flask-cors`: For the web API.
+- `opencv-python` & `Pillow`: For image processing.
+- `pydicom`: For medical imaging metadata.
